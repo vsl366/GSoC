@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Teaching pyGAM to tell signal from noise · GSoC 2026</title>
+<meta name="description" content="A Google Summer of Code 2026 project: correcting the p-values for smooth terms in pyGAM, following Wood (2013)." />
+
+<!--
+  SCREENSHOTS: drop PNGs into ./images/ with these names (missing = graceful placeholder):
+    images/flow.png            (optional) your own flow sketch; leave out to use the built-in diagram
+    images/commits.png         the PR commit history
+    images/null-qq.png         null-calibration QQ-plot (points on the diagonal)
+    images/wood-grid.png       Wood Fig. 2 grid reproduction
+    images/tests-pass.png      pytest output, all green
+    images/wage-summary.png    the wage GAM .summary() output
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --bg:#ffffff; --ink:#17191c; --body:#33373d; --soft:#6b7078;
+    --rule:#e7e7e4; --green:#126b43; --green-2:#0e5837; --wash:#f2f8f4; --maxw:700px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
+  body { margin:0; background:var(--bg); color:var(--body);
+    font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:17.5px; line-height:1.7;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+  ::selection { background:#cdecd9; }
+  .wrap { max-width:var(--maxw); margin:0 auto; padding:0 24px; }
+
+  a { color:var(--green); text-decoration:underline; text-underline-offset:2px; text-decoration-thickness:1px; }
+  a:hover { color:var(--green-2); text-decoration-thickness:2px; }
+  h1,h2,h3,h4 { font-family:"IBM Plex Serif",Georgia,serif; color:var(--ink); font-weight:600; }
+
+  .top { border-bottom:1.5px solid var(--ink); }
+  .top .wrap { display:flex; align-items:center; gap:10px; height:52px; font-family:"IBM Plex Mono",monospace; font-size:12.5px; letter-spacing:.04em; color:var(--soft); }
+  .top .wrap b { color:var(--ink); font-weight:500; }
+  .top .spacer{ flex:1; }
+  .top a{ color:var(--soft); text-decoration:none; }
+  .top a:hover{ color:var(--green); }
+  @media (max-width:520px){ .top .hidemob{ display:none; } }
+
+  header.hero { padding:66px 0 40px; border-bottom:1px solid var(--rule); }
+  .kicker { font-family:"IBM Plex Mono",monospace; font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--green); margin:0 0 18px; }
+  h1 { font-size:clamp(2.2rem,6.4vw,3.4rem); line-height:1.06; letter-spacing:-.02em; margin:0; }
+  h1 .i { font-style:italic; }
+  header .sub { font-size:clamp(1.06rem,2.4vw,1.24rem); color:var(--soft); margin:20px 0 0; max-width:44ch; }
+  .byline { margin-top:24px; font-size:15px; color:var(--body); }
+  .byline b { color:var(--ink); }
+  .toplinks { margin-top:14px; font-family:"IBM Plex Mono",monospace; font-size:14px; line-height:2; }
+  .toplinks .sep { color:var(--rule); margin:0 8px; }
+
+  section { padding:44px 0; border-bottom:1px solid var(--rule); }
+  .part-label { font-family:"IBM Plex Mono",monospace; font-size:12.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--soft); }
+  .part-label b { color:var(--green); font-weight:500; }
+  h2 { font-size:clamp(1.55rem,4.2vw,2.1rem); line-height:1.15; letter-spacing:-.015em; margin:8px 0 2px; }
+  h3 { font-size:1.24rem; margin:30px 0 4px; letter-spacing:-.01em; }
+  p { margin:15px 0; }
+  .lead { font-size:1.08rem; color:var(--ink); }
+  .muted { color:var(--soft); }
+  strong { color:var(--ink); font-weight:600; }
+  code { font-family:"IBM Plex Mono",monospace; font-size:.86em; background:#f4f5f3; padding:1px 6px; border-radius:4px; color:#1f4a34; }
+
+  .divider-note { border-left:2.5px solid var(--green); padding:4px 0 4px 18px; margin:22px 0; color:var(--ink); }
+
+  .fix { display:grid; grid-template-columns:44px 1fr; gap:4px 18px; margin:26px 0; }
+  .fix .num { font-family:"IBM Plex Serif",serif; font-size:2rem; font-weight:600; color:var(--green); line-height:1; grid-row:span 2; }
+  .fix h3 { margin:2px 0 0; }
+  .fix p { margin:8px 0 0; }
+
+  .flow { margin:26px 0 6px; }
+  .flow .track { display:flex; align-items:stretch; flex-wrap:wrap; }
+  .stage { flex:1 1 118px; min-width:118px; border:1px solid var(--rule); border-top:3px solid var(--green); border-radius:8px; padding:12px; background:#fff; }
+  .stage .sn { font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--green); letter-spacing:.08em; }
+  .stage .st { display:block; font-family:"IBM Plex Serif",serif; font-weight:600; color:var(--ink); font-size:15px; margin-top:3px; line-height:1.25; }
+  .stage .sd { font-size:12.5px; color:var(--soft); margin-top:4px; line-height:1.4; }
+  .arrow { align-self:center; color:var(--green); font-family:"IBM Plex Mono",monospace; padding:0 6px; flex:0 0 auto; }
+  .flow .caps { display:flex; justify-content:space-between; font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--soft); margin-top:10px; }
+  @media (max-width:640px){ .flow .track{ flex-direction:column; } .arrow{ transform:rotate(90deg); padding:2px 0; } .flow .caps{ display:none; } }
+
+  .contrib { background:var(--wash); border:1px solid #dbe9e1; border-radius:10px; padding:20px 22px; margin:20px 0; }
+  .contrib h3 { margin-top:0; }
+  .contrib ul { margin:10px 0 0; padding-left:20px; }
+  .contrib li { margin:7px 0; }
+  .contrib code { background:#e6f1ea; }
+
+  figure { margin:26px 0; }
+  figure img { width:100%; border:1px solid var(--rule); border-radius:8px; display:block; }
+  figcaption { font-size:13.5px; color:var(--soft); margin-top:9px; }
+  figcaption b { color:var(--ink); font-weight:500; }
+  .ph { width:100%; min-height:200px; border:1px dashed #cfd6cf; border-radius:8px; display:flex; align-items:center; justify-content:center; text-align:center; padding:22px; color:var(--soft); font-family:"IBM Plex Mono",monospace; font-size:13px; background:#fbfcfb; }
+
+  table { width:100%; border-collapse:collapse; margin:18px 0; font-size:15px; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--rule); }
+  th { font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--soft); font-weight:500; }
+  td.n { font-family:"IBM Plex Mono",monospace; color:var(--green); }
+
+  .refs { margin:14px 0 0; padding:0; list-style:none; }
+  .refs li { padding:9px 0; border-bottom:1px solid var(--rule); font-size:15px; }
+  .refs li:last-child{ border-bottom:none; }
+
+  footer { padding:34px 0 64px; color:var(--soft); font-size:13.5px; font-family:"IBM Plex Mono",monospace; }
+  footer a { color:var(--soft); }
+  footer a:hover { color:var(--green); }
+
+  .reveal { opacity:0; transform:translateY(12px); transition:opacity .5s ease, transform .5s ease; }
+  .reveal.in { opacity:1; transform:none; }
+  @media (prefers-reduced-motion: reduce){ .reveal{ opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="wrap">
+    <b>GSoC&nbsp;2026</b><span>·</span><span>pyGAM</span>
+    <span class="spacer"></span>
+    <a href="#part-one">the work</a><span class="hidemob">&nbsp;·&nbsp;</span>
+    <a class="hidemob" href="#part-two">the proof</a><span class="hidemob">&nbsp;·&nbsp;</span>
+    <a href="#links">links</a>
+  </div>
+</div>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <p class="kicker reveal">Google Summer of Code 2026</p>
+    <h1 class="reveal">Teaching pyGAM to tell<br><span class="i">signal</span> from <span class="i">noise</span></h1>
+    <p class="sub reveal">Correcting the p-values for smooth terms — so a wiggle in a fitted curve can be called real, or dismissed as chance, and trusted either way.</p>
+    <p class="byline reveal">By <b>Vishal&nbsp;S</b> &nbsp;·&nbsp; contributing to <a href="https://github.com/dswah/pyGAM" target="_blank" rel="noopener">pyGAM</a>, an open-source library for Generalized Additive Models.</p>
+    <p class="toplinks reveal">
+      <a href="https://github.com/dswah/pyGAM/pull/586" target="_blank" rel="noopener">Pull request #586</a><span class="sep">/</span>
+      <a href="https://github.com/dswah/pyGAM/issues/163" target="_blank" rel="noopener">Issue #163</a><span class="sep">/</span>
+      <a href="https://github.com/vsl366/pyGAM/tree/gsoc-vsl366" target="_blank" rel="noopener">My branch</a><span class="sep">/</span>
+      <a href="https://summerofcode.withgoogle.com/" target="_blank" rel="noopener">GSoC</a>
+    </p>
+  </div>
+</header>
+
+<main>
+
+<section id="part-one">
+  <div class="wrap reveal">
+    <p class="part-label"><b>Part one</b> — the work</p>
+    <h2>What pyGAM is, and what I set out to fix</h2>
+    <p class="lead">A <strong>Generalized Additive Model (GAM)</strong> fits flexible curves instead of straight lines — it lets the data decide the shape of each feature's effect, rather than assuming everything is linear. <a href="https://github.com/dswah/pyGAM" target="_blank" rel="noopener">pyGAM</a> is the most widely used library for building these models in Python, maintained by Daniel Servén and used across research and industry.</p>
+    <p>After fitting a model, pyGAM reports a <strong>p-value</strong> for each curve. That number is meant to answer one honest question:</p>
+    <p class="divider-note">Is this wiggle a <strong>real pattern</strong> in the data, or could plain noise have produced something that looks just as structured?</p>
+    <p>A small p-value means "noise rarely does this — the effect is probably real." A large one means "can't tell it apart from chance." These numbers are what turn a pretty curve into a defensible scientific claim.</p>
+  </div>
+</section>
+
+<section id="the-issue">
+  <div class="wrap reveal">
+    <p class="part-label">the problem</p>
+    <h2>The bug: p-values you couldn't trust</h2>
+    <p><a href="https://github.com/dswah/pyGAM/issues/163" target="_blank" rel="noopener">Issue #163</a> reported that pyGAM's p-values were <strong>anti-conservative</strong>: instead of spreading out honestly, they piled up near zero. In practice that means the model calls almost everything "significant" — including pure noise. A p-value that cries wolf is worse than no p-value at all, because it hands you confident, wrong conclusions.</p>
+    <p>The correct method comes from a 2013 paper by <strong>Simon Wood</strong> — the author of R's <em>mgcv</em>, the reference implementation for GAMs that the whole field trusts. My project was to bring that method faithfully into pyGAM, and then <strong>prove</strong> the new p-values behave.</p>
+  </div>
+</section>
+
+<section id="five-fixes">
+  <div class="wrap reveal">
+    <p class="part-label">the solution</p>
+    <h2>Five things were wrong. Here's each one.</h2>
+    <p class="muted">Every fix is a specific, self-contained correction to how the p-value is computed — kept short here; the details live in part two.</p>
+
+    <div class="fix"><div class="num">1</div><h3>Effective degrees of freedom</h3>
+      <p>A penalised curve is less flexible than its number of coefficients suggests — the penalty holds it back. That true flexibility has to be measured as <code>tr(2F − F²)</code>, not <code>tr(F)</code>, and — the part earlier attempts missed — actually <em>used</em> in the test rather than computed and discarded.</p></div>
+
+    <div class="fix"><div class="num">2</div><h3>Pseudoinverse truncation</h3>
+      <p>The test inverts the curve's covariance, but some directions are so heavily penalised they're effectively null. Inverting their near-zero eigenvalues divides by almost nothing and inflates the statistic into false significance. The fix drops those directions below a numerical threshold before inverting.</p></div>
+
+    <div class="fix"><div class="num">3</div><h3>The reference distribution</h3>
+      <p>Because the effective df is fractional, the statistic doesn't follow a tidy χ². It follows a <em>weighted mixture</em> of chi-squareds with no closed form, so I use the Liu–Tang–Zhang moment-matching approximation Wood recommends — not the wrong <code>χ²(rank)</code>.</p></div>
+
+    <div class="fix"><div class="num">4</div><h3>QR-based computation</h3>
+      <p>The statistic lives on the fitted <em>curve</em>, not the raw coefficients. Computing it through a QR decomposition of the term's model matrix keeps it in "curve space" — faster, and far more stable than forming and inverting the full covariance. This was the subtlest part, and where an early version hid a bug that only <em>looked</em> correct.</p></div>
+
+    <div class="fix"><div class="num">5</div><h3>Estimated-scale families</h3>
+      <p>For Gaussian-type models the noise level is estimated from the data, which adds uncertainty the p-value must respect. Instead of an F-shortcut, I integrate over that uncertainty by quadrature, properly accounting for the extra randomness.</p></div>
+
+    <div class="flow">
+      <div class="track">
+        <div class="stage"><span class="sn">FIX 1</span><span class="st">Effective df</span><span class="sd">tr(2F − F²)</span></div>
+        <span class="arrow">→</span>
+        <div class="stage"><span class="sn">FIX 4</span><span class="st">QR rotation</span><span class="sd">into curve space</span></div>
+        <span class="arrow">→</span>
+        <div class="stage"><span class="sn">FIX 2</span><span class="st">Truncate</span><span class="sd">drop null directions</span></div>
+        <span class="arrow">→</span>
+        <div class="stage"><span class="sn">FIX 3</span><span class="st">Mixture</span><span class="sd">χ² weights</span></div>
+        <span class="arrow">→</span>
+        <div class="stage"><span class="sn">FIX 5</span><span class="st">Scale</span><span class="sd">quadrature</span></div>
+      </div>
+      <div class="caps"><span>fitted GAM&nbsp;&nbsp;(β̂,&nbsp;V)</span><span>honest p-value</span></div>
+    </div>
+    <figure>
+      <img src="images/flow.png" alt="Flow diagram of the five fixes" onerror="this.style.display='none'">
+      <figcaption><b>The pipeline.</b> A fitted model enters on the left; the five fixes transform it, in order, into a trustworthy p-value.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="contribution">
+  <div class="wrap reveal">
+    <p class="part-label">my contribution</p>
+    <h2>What I actually wrote</h2>
+    <p>The work touches pyGAM's inference core and adds a validation layer around it. Concretely:</p>
+    <div class="contrib">
+      <h3>In <code>pygam/pygam.py</code></h3>
+      <ul>
+        <li>Rewrote <code>_compute_p_value</code> to use Wood's method end-to-end.</li>
+        <li>Added <code>_woodteststat</code> — the curve-space test statistic (the heart of it).</li>
+        <li>Added <code>_liu2</code> — the Liu–Tang–Zhang chi-squared mixture approximation.</li>
+        <li>Added <code>_liu2_scaled_quadrature</code> — the estimated-scale correction.</li>
+        <li>Fixed the effective-df computation to the correct <code>tr(2F − F²)</code> form.</li>
+      </ul>
+      <h3 style="margin-top:18px">In <code>pygam/tests/test_pvalues.py</code> — authored from scratch</h3>
+      <ul>
+        <li>88 tests across the whole pipeline: unit checks, <strong>numeric agreement with compiled mgcv</strong> (13 cases), null-calibration (type-I error), power, tensor terms, and a real-dataset check.</li>
+        <li>Plus standalone validation scripts: null calibration, known-signal, and a reproduction of Wood's Figure&nbsp;2 grid.</li>
+      </ul>
+    </div>
+    <p class="muted">Everything is in <a href="https://github.com/dswah/pyGAM/pull/586" target="_blank" rel="noopener">pull request #586</a> against the main pyGAM repository.</p>
+  </div>
+</section>
+
+<section id="commits">
+  <div class="wrap reveal">
+    <p class="part-label">the trail</p>
+    <h2>Every commit, over the summer</h2>
+    <p>The history reads like the project itself: the first helpers, the core statistic, the hard-won QR correction, the clean-room rewrite, then layer after layer of validation.</p>
+    <figure>
+      <img src="images/commits.png" alt="Commit history of pull request 586" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">images/commits.png &nbsp;—&nbsp; drop your commit-history screenshot here</div>
+      <figcaption><b>Commit history</b> on <a href="https://github.com/dswah/pyGAM/pull/586/commits" target="_blank" rel="noopener">PR #586</a>.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="part-two">
+  <div class="wrap reveal">
+    <p class="part-label"><b>Part two</b> — the proof</p>
+    <h2>How I know it actually works</h2>
+    <p class="lead">A correct-looking formula isn't proof. I validated the fix from three independent angles — a bug would have to slip past all three at once.</p>
+    <table>
+      <tr><th>What was checked</th><th>Result</th></tr>
+      <tr><td>Match to compiled mgcv (the reference), 13 cases</td><td class="n">~1e-9</td></tr>
+      <tr><td>False-positive rate on pure noise (target 0.05)</td><td class="n">0.052</td></tr>
+      <tr><td>Power — real effects detected</td><td class="n">100%</td></tr>
+      <tr><td>Test suite</td><td class="n">88 passing</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="calibration">
+  <div class="wrap reveal">
+    <p class="part-label">angle one — honesty</p>
+    <h2>Null calibration: the QQ-plot</h2>
+    <p>The definitive test of an honest p-value: fit a smooth on <strong>pure noise</strong> hundreds of times and collect the p-value each time. If the method is calibrated, those p-values must be uniform on [0,1] — which means, on a QQ-plot, they land on the diagonal. This is a direct reproduction of Figure&nbsp;2 in Wood's paper, and it's the single clearest picture that the bug is gone.</p>
+    <figure>
+      <img src="images/null-qq.png" alt="Null QQ-plot: p-values on the diagonal" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">images/null-qq.png &nbsp;—&nbsp; the null-calibration QQ-plot</div>
+      <figcaption><b>On the diagonal, i.e. calibrated.</b> Sorted null p-values vs uniform quantiles. The old bug would pull this curve down toward the floor.</figcaption>
+    </figure>
+    <p>I ran the same check across Wood's full grid — univariate and tensor smooths, two sample sizes, Gaussian and binary responses — and it reproduces the paper's finding: everything is calibrated at larger samples, with only the small-sample binary case wobbling, exactly as Wood reports.</p>
+    <figure>
+      <img src="images/wood-grid.png" alt="Wood Figure 2 grid reproduction" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">images/wood-grid.png &nbsp;—&nbsp; (optional) the Wood Fig. 2 grid</div>
+      <figcaption><b>Wood (2013), Figure&nbsp;2 — reproduced in pyGAM.</b></figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="power">
+  <div class="wrap reveal">
+    <p class="part-label">angle two — power &amp; agreement</p>
+    <h2>It detects what's real, and matches the reference</h2>
+    <p>Calibration only proves the method stays quiet on noise. It also has to be <em>loud</em> on real effects — and it is: on data with a genuine signal, the p-value fires essentially every time, and it falls smoothly as the signal grows stronger (a clean dose-response). Separately, on 13 matched cases the statistic agrees with compiled mgcv to about nine decimal places — including a real tensor (two-dimensional) smooth and a categorical factor term.</p>
+    <figure>
+      <img src="images/tests-pass.png" alt="pytest output, all passing" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">images/tests-pass.png &nbsp;—&nbsp; pytest output, all green</div>
+      <figcaption><b>The full suite, green.</b> 88 tests covering every path.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="realdata">
+  <div class="wrap reveal">
+    <p class="part-label">angle three — real data</p>
+    <h2>And it recovers the textbook answers</h2>
+    <p>The final check uses genuine data with a known answer: the classic ISLR <em>wage</em> dataset. The recovered p-values match decades of established analysis — <code>age</code> strongly nonlinear, <code>education</code> strong, <code>year</code> weak but real — and the categorical factor term works correctly, closing the last unverified path in the code.</p>
+    <figure>
+      <img src="images/wage-summary.png" alt="wage GAM summary output" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="ph" style="display:none">images/wage-summary.png &nbsp;—&nbsp; the wage GAM .summary()</div>
+      <figcaption><b>The fitted wage model.</b> p-values recover the known effects, across smooth and categorical terms.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="close">
+  <div class="wrap reveal">
+    <p class="part-label">where it stands</p>
+    <h2>Done, and what's next</h2>
+    <p>The five fixes are implemented, the p-values are calibrated and powerful, and the statistic matches the reference implementation to nine decimals across every term type pyGAM supports. What's left is documentation and a changelog — and one stretch goal (a smoothing-parameter uncertainty correction) that the proposal always framed as optional. The hard part is finished; the numbers are honest.</p>
+  </div>
+</section>
+
+<section id="links">
+  <div class="wrap reveal">
+    <p class="part-label">links &amp; references</p>
+    <h2>Everything in one place</h2>
+    <ul class="refs">
+      <li><a href="https://github.com/dswah/pyGAM/pull/586" target="_blank" rel="noopener">Pull request #586</a> — Improved p-values for smooth terms (the contribution)</li>
+      <li><a href="https://github.com/dswah/pyGAM/issues/163" target="_blank" rel="noopener">Issue #163</a> — the original bug report</li>
+      <li><a href="https://github.com/vsl366/pyGAM/tree/gsoc-vsl366" target="_blank" rel="noopener">My working branch</a> — vsl366/pyGAM · gsoc-vsl366</li>
+      <li><a href="https://github.com/dswah/pyGAM" target="_blank" rel="noopener">pyGAM</a> · <a href="https://pygam.readthedocs.io" target="_blank" rel="noopener">documentation</a></li>
+      <li><a href="https://summerofcode.withgoogle.com/" target="_blank" rel="noopener">Google Summer of Code</a></li>
+      <li>Wood, S. N. (2013). <em>On p-values for smooth components of an extended generalized additive model.</em> Biometrika 100(1), 221–228. — <a href="https://doi.org/10.1093/biomet/ass048" target="_blank" rel="noopener">doi:10.1093/biomet/ass048</a></li>
+      <li>Liu, Tang &amp; Zhang (2009). <em>A new chi-square approximation to the distribution of non-negative definite quadratic forms.</em> Comput. Stat. Data Anal. 53(4), 853–856.</li>
+      <li><a href="https://cran.r-project.org/package=mgcv" target="_blank" rel="noopener">mgcv</a> — the R reference implementation used as ground truth</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    GSoC 2026 · pyGAM · Vishal S &nbsp;—&nbsp; <a href="#top">back to top ↑</a>
+  </div>
+</footer>
+
+<script>
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const els = document.querySelectorAll(".reveal");
+  if (reduced || !("IntersectionObserver" in window)) els.forEach(e=>e.classList.add("in"));
+  else { const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target);}})},{threshold:.1}); els.forEach(e=>io.observe(e)); }
+</script>
+</body>
+</html>
