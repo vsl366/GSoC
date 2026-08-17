@@ -3,377 +3,367 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Teaching pyGAM to tell signal from noise · GSoC 2026</title>
-<meta name="description" content="GSoC 2026: implementing a modern p-value computation for smooth terms in pyGAM, following Wood (2013)." />
+<title>Teaching pyGAM to tell signal from noise</title>
+<meta name="description" content="A Google Summer of Code 2026 project with GC.OS: a modern p-value computation for smooth terms in pyGAM." />
 
-<!--
-  SCREENSHOTS -> put PNGs in ./images/ (missing ones show a tidy placeholder):
-    images/commits.png       PR commit history
-    images/flow.png          (optional) your own flow sketch
-    images/null-qq.png       null-calibration QQ-plot
-    images/wood-grid.png     Wood Fig. 2 grid
-    images/tests-pass.png    pytest all green
-    images/wage-summary.png  wage GAM .summary()
--->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet">
 
-<!-- math -->
 <script>
-  window.MathJax = {
-    tex: { inlineMath: [['$','$']], displayMath: [['$$','$$']] },
-    svg: { fontCache: 'global' },
-    options: { renderActions: { addMenu: [] } }
-  };
+  window.MathJax = { tex:{ inlineMath:[['$','$']], displayMath:[['$$','$$']] }, svg:{ fontCache:'global' }, options:{ renderActions:{ addMenu:[] } } };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
 
 <style>
   :root{
-    --bg:#ffffff; --ink:#1f2328; --body:#2c3138; --soft:#6a7178; --rule:#ececeb;
-    --green:#1a7f4f; --green-d:#146340; --mint:#eef6f1; --sky:#eef3fb; --amber:#fbf3e6;
-    --blue:#2b6cb0; --clay:#b4582f; --maxw:690px;
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#181a1c; --body:#3a3f45; --muted:#767c83;
+    --line:#e8e7e3; --accent:#1f6f43; --accent-2:#e8f2ec; --accent-ink:#155233;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --serif:'Newsreader',Georgia,serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --col:44rem; --wide:60rem;
   }
   *{ box-sizing:border-box; }
-  html{ scroll-behavior:smooth; } @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto;} }
-  body{
-    margin:0; background:var(--bg); color:var(--body);
-    font-family:Georgia,"Times New Roman",serif; font-size:20px; line-height:1.72;
-    -webkit-font-smoothing:antialiased;
-  }
-  ::selection{ background:#cdeeda; }
-  .wrap{ max-width:var(--maxw); margin:0 auto; padding:0 22px; }
-  .sans{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
-  h1,h2,h3,h4,.kicker,.part,.top,.flow,.metrics,.stagebox,figcaption,table,.callout .who{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  }
-  a{ color:var(--green); text-decoration:underline; text-underline-offset:2px; }
-  a:hover{ color:var(--green-d); }
-  strong{ color:var(--ink); }
-  code{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.82em; background:#f3f4f2; padding:1px 6px; border-radius:5px; color:#155c3a; }
+  html{ scroll-behavior:smooth; -webkit-text-size-adjust:100%; }
+  @media (prefers-reduced-motion:reduce){ html{ scroll-behavior:auto; } }
+  body{ margin:0; background:var(--bg); color:var(--body); font-family:var(--sans);
+    font-size:18px; line-height:1.72; -webkit-font-smoothing:antialiased; }
+  ::selection{ background:#c9e6d4; }
 
-  /* masthead */
-  .top{ border-bottom:1px solid var(--rule); }
-  .top .wrap{ display:flex; align-items:center; height:54px; font-size:14px; color:var(--soft); }
-  .top b{ color:var(--ink); font-weight:600; } .top .sp{ flex:1; }
-  .top a{ color:var(--soft); text-decoration:none; margin-left:16px; }
-  .top a:hover{ color:var(--green); }
-  @media (max-width:520px){ .top .hidemob{ display:none; } }
+  .col{ max-width:var(--col); margin-inline:auto; padding-inline:24px; }
+  .wide{ max-width:var(--wide); margin-inline:auto; padding-inline:24px; }
 
-  /* hero */
-  header.hero{ padding:60px 0 40px; }
-  .kicker{ font-size:14px; font-weight:600; letter-spacing:.04em; color:var(--green); text-transform:uppercase; margin:0 0 16px; }
-  h1{ font-family:Georgia,serif; font-weight:700; color:var(--ink); font-size:clamp(2.1rem,6vw,3.1rem); line-height:1.12; letter-spacing:-.015em; margin:0; }
-  .task{ display:inline-block; margin-top:22px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; font-size:15px; background:var(--mint); color:var(--green-d); border:1px solid #d3e8dc; border-radius:999px; padding:6px 14px; }
-  header .sub{ font-size:1.16rem; color:var(--soft); margin:20px 0 0; }
-  .herometa{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; font-size:15px; margin-top:22px; color:var(--body); }
-  .herometa .lnks a{ margin-right:16px; white-space:nowrap; }
+  a{ color:var(--accent); text-decoration:none; }
+  a:hover{ color:var(--accent-ink); }
+  .prose a{ border-bottom:1.5px solid #bfe0cc; }
+  .prose a:hover{ border-color:var(--accent); }
+  strong{ color:var(--ink); font-weight:600; }
+  code{ font-family:var(--mono); font-size:.83em; background:#f1f2ef; border:1px solid var(--line);
+    padding:.05em .4em; border-radius:5px; color:#1c5238; }
 
-  /* sections */
-  section{ padding:20px 0; }
-  .part{ font-size:13px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--green); margin:34px 0 2px; }
-  h2{ font-family:Georgia,serif; font-weight:700; color:var(--ink); font-size:clamp(1.5rem,4vw,2rem); line-height:1.2; letter-spacing:-.01em; margin:6px 0 6px; }
-  h3{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; font-weight:600; color:var(--ink); font-size:1.16rem; margin:30px 0 2px; }
-  p{ margin:16px 0; }
-  .lead{ color:var(--ink); }
+  nav{ position:sticky; top:0; z-index:50; background:rgba(251,251,250,.82);
+    backdrop-filter:saturate(1.6) blur(10px); border-bottom:1px solid var(--line); }
+  nav .wide{ display:flex; align-items:center; gap:20px; height:58px; }
+  nav .logo{ font-family:var(--serif); font-weight:600; font-size:17px; color:var(--ink); letter-spacing:-.01em; }
+  nav .logo b{ color:var(--accent); font-weight:600; }
+  nav .sp{ flex:1; }
+  nav .navlinks{ display:flex; gap:22px; font-size:14px; }
+  nav .navlinks a{ color:var(--muted); }
+  nav .navlinks a:hover{ color:var(--ink); }
+  @media (max-width:600px){ nav .navlinks{ display:none; } }
 
-  hr.soft{ border:none; border-top:1px solid var(--rule); margin:30px 0; }
+  .hero{ padding:96px 0 66px; text-align:center; }
+  .badge{ display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:500;
+    color:var(--accent-ink); background:var(--accent-2); border:1px solid #cfe6d8;
+    padding:6px 14px; border-radius:999px; }
+  .badge .dot{ width:7px; height:7px; border-radius:50%; background:var(--accent); }
+  .hero h1{ font-family:var(--serif); font-weight:500; color:var(--ink);
+    font-size:clamp(2.4rem,6.4vw,4rem); line-height:1.07; letter-spacing:-.02em; margin:26px 0 0; }
+  .hero h1 .g{ color:var(--accent); }
+  .hero p.sub{ font-family:var(--serif); font-size:clamp(1.15rem,2.6vw,1.4rem);
+    color:var(--body); line-height:1.55; margin:22px auto 0; max-width:38ch; }
+  .hero .who{ margin-top:26px; font-size:15px; color:var(--muted); line-height:1.7; }
+  .hero .who b{ color:var(--ink); font-weight:600; }
+  .hero .who a{ color:var(--accent); border-bottom:1px solid #cfe6d8; }
+  .linkrow{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:30px; }
+  .linkrow a{ font-size:14px; font-weight:500; color:var(--ink); background:var(--panel);
+    border:1px solid var(--line); padding:9px 16px; border-radius:10px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .linkrow a:hover{ border-color:var(--accent); color:var(--accent-ink); }
+  .linkrow a.solid{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .linkrow a.solid:hover{ background:var(--accent-ink); }
 
-  /* math block styling */
-  .mathblock{ background:var(--mint); border-left:3px solid var(--green); border-radius:0 8px 8px 0; padding:6px 18px; margin:20px 0; overflow-x:auto; }
+  section{ padding:58px 0; }
+  .band{ background:var(--panel); border-block:1px solid var(--line); }
+  .eyebrow{ display:flex; align-items:center; gap:12px; font-size:13px; font-weight:600;
+    letter-spacing:.04em; text-transform:uppercase; color:var(--accent); margin:0 0 14px; }
+  .eyebrow::before{ content:""; width:26px; height:2px; background:var(--accent); border-radius:2px; }
+  h2{ font-family:var(--serif); font-weight:500; color:var(--ink);
+    font-size:clamp(1.7rem,3.8vw,2.45rem); line-height:1.16; letter-spacing:-.02em; margin:0 0 8px; }
+  h3{ font-family:var(--serif); font-weight:600; color:var(--ink);
+    font-size:1.42rem; letter-spacing:-.01em; margin:40px 0 6px; }
+  .prose p{ margin:16px 0; }
+  .prose .lead{ font-size:1.14rem; color:var(--ink); }
+  .intu{ color:var(--accent-ink); background:var(--accent-2); border-radius:10px;
+    padding:12px 16px; margin:14px 0; font-size:.98rem; }
+
+  .math{ background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:8px 20px; margin:20px 0; overflow-x:auto; box-shadow:0 1px 2px rgba(0,0,0,.02); }
   mjx-container{ overflow-x:auto; overflow-y:hidden; max-width:100%; }
 
-  /* org quote */
-  .callout{ background:var(--sky); border:1px solid #dce7f4; border-radius:10px; padding:20px 22px; margin:22px 0; font-size:1.02rem; color:#2a3a4d; }
-  .callout .who{ display:block; margin-top:10px; font-size:13px; color:#5a6b80; }
+  blockquote{ margin:26px 0; padding:22px 26px; background:var(--accent-2); border-radius:14px; }
+  blockquote p{ margin:0; font-family:var(--serif); font-size:1.14rem; line-height:1.6; color:#20402e; }
+  blockquote cite{ display:block; margin-top:12px; font-family:var(--sans); font-size:13.5px; font-style:normal; color:#4a6a56; }
 
-  .outcomes{ background:#fbfbfa; border:1px solid var(--rule); border-radius:10px; padding:6px 22px; margin:20px 0; }
-  .outcomes li{ margin:8px 0; }
+  ul.ticks{ list-style:none; margin:18px 0; padding:0; }
+  ul.ticks li{ position:relative; padding-left:30px; margin:11px 0; }
+  ul.ticks li::before{ content:""; position:absolute; left:4px; top:.62em; width:9px; height:9px;
+    border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px var(--accent-2); }
 
-  /* five fixes */
-  .fix{ display:grid; grid-template-columns:46px 1fr; gap:2px 18px; margin:22px 0; }
-  .fix .num{ grid-row:span 2; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; font-weight:700; font-size:1.9rem; color:var(--green); line-height:1; padding-top:4px; }
-  .fix h3{ margin:2px 0 0; }
-  .fix p{ margin:6px 0 0; font-size:.98rem; }
+  .fixes{ display:grid; gap:16px; margin:28px 0 4px; }
+  @media (min-width:720px){ .fixes{ grid-template-columns:1fr 1fr; } }
+  .fixcard{ background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:22px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .fixcard .n{ display:inline-grid; place-items:center; width:32px; height:32px; border-radius:9px;
+    background:var(--accent); color:#fff; font-weight:700; font-size:15px; }
+  .fixcard h3{ font-family:var(--serif); font-size:1.16rem; margin:14px 0 6px; }
+  .fixcard p{ margin:0; font-size:.96rem; line-height:1.62; }
 
-  /* callout note */
-  .note{ border-left:3px solid var(--clay); background:var(--amber); border-radius:0 8px 8px 0; padding:12px 18px; margin:20px 0; font-size:.98rem; }
+  .pipe{ display:flex; align-items:stretch; gap:10px; flex-wrap:wrap; margin:30px 0 6px; }
+  .pipe .st{ flex:1 1 150px; min-width:140px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:14px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .pipe .st .k{ font-size:11px; font-weight:700; letter-spacing:.05em; color:var(--accent); }
+  .pipe .st .h{ display:block; font-weight:600; color:var(--ink); margin-top:5px; font-size:15px; }
+  .pipe .st .d{ font-size:12.5px; color:var(--muted); margin-top:3px; }
+  .pipe .arw{ align-self:center; color:#c3ccc6; font-weight:700; }
+  @media (max-width:720px){ .pipe{ flex-direction:column; } .pipe .arw{ transform:rotate(90deg); } }
 
-  /* figures */
-  figure{ margin:26px 0; }
-  figure img{ width:100%; border:1px solid var(--rule); border-radius:8px; display:block; }
-  figcaption{ font-size:13.5px; color:var(--soft); margin-top:10px; text-align:center; }
-  figcaption b{ color:var(--ink); }
-  .ph{ width:100%; min-height:190px; border:1.5px dashed #d4dcd6; border-radius:8px; display:flex; align-items:center; justify-content:center; text-align:center; padding:22px; color:var(--soft); font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; background:#fbfcfb; }
+  .note{ border:1px solid #e3d9c4; background:#fbf6ea; border-radius:12px; padding:16px 20px; margin:24px 0; font-size:.97rem; }
+  .note strong{ color:#7a5a1e; }
 
-  /* flowchart */
-  .flow{ margin:22px 0; }
-  .stagebox{ border:1px solid var(--rule); border-radius:10px; padding:13px 16px; margin:0 auto; max-width:440px; text-align:center; background:#fff; }
-  .stagebox .fn{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:14px; color:var(--ink); font-weight:600; }
-  .stagebox .desc{ font-size:12.5px; color:var(--soft); margin-top:3px; }
-  .stagebox.green{ background:var(--mint); border-color:#cfe6d8; }
-  .stagebox.amber{ background:var(--amber); border-color:#eddcc0; max-width:300px; }
-  .stagebox.blue{ background:var(--sky); border-color:#d6e4f4; }
-  .down{ text-align:center; color:var(--green); font-size:20px; line-height:1; margin:7px 0; }
-  .down small{ display:block; font-family:-apple-system,Segoe UI,Arial,sans-serif; font-size:11.5px; color:var(--soft); margin-top:2px; }
-  .branchrow{ display:flex; gap:14px; justify-content:center; margin-top:8px; }
-  .branchrow .stagebox{ max-width:none; flex:1; }
-  .branch-lab{ font-family:-apple-system,Segoe UI,Arial,sans-serif; font-size:11.5px; color:var(--soft); margin-bottom:4px; }
-  @media (max-width:560px){ .branchrow{ flex-direction:column; } }
+  figure{ margin:30px 0; }
+  figure img{ width:100%; border:1px solid var(--line); border-radius:14px; display:block; box-shadow:0 4px 20px rgba(20,40,30,.06); }
+  figcaption{ font-size:13.5px; color:var(--muted); margin-top:12px; text-align:center; }
+  figcaption b{ color:var(--ink); font-weight:600; }
+  .ph{ width:100%; min-height:230px; border:1.5px dashed #cfd6d0; border-radius:14px;
+    display:grid; place-items:center; padding:26px; color:var(--muted); font-family:var(--mono);
+    font-size:13px; background:var(--panel); text-align:center; }
 
-  /* metrics */
-  .metrics{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:20px 0; }
-  .metric{ border:1px solid var(--rule); border-radius:10px; padding:16px; text-align:center; }
-  .metric .v{ font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif; font-weight:700; font-size:1.7rem; color:var(--green); line-height:1; }
-  .metric .l{ font-family:-apple-system,Segoe UI,Arial,sans-serif; font-size:12.5px; color:var(--soft); margin-top:8px; }
-  @media (max-width:520px){ .metrics{ grid-template-columns:repeat(2,1fr); } }
+  .flow{ max-width:520px; margin:26px auto 0; }
+  .node{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px 18px;
+    text-align:center; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .node.hl{ border-color:#bfe0cc; background:#f4faf6; }
+  .node .fn{ font-family:var(--mono); font-size:13.5px; font-weight:600; color:var(--ink); }
+  .node .d{ font-size:12.5px; color:var(--muted); margin-top:4px; }
+  .arrow{ text-align:center; color:#bcc4be; margin:9px 0; font-size:17px; }
+  .arrow small{ display:block; font-size:11.5px; color:var(--muted); margin-top:3px; }
+  .fork{ display:flex; gap:14px; margin-top:10px; }
+  .fork>div{ flex:1; }
+  .fork .lab{ text-align:center; font-size:11.5px; color:var(--muted); margin-bottom:6px; }
+  @media (max-width:540px){ .fork{ flex-direction:column; } }
 
-  /* references */
-  table{ width:100%; border-collapse:collapse; font-size:14.5px; margin:16px 0; }
+  .metrics{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin:26px 0; }
+  .m{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:26px 18px;
+    text-align:center; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .m .v{ font-family:var(--serif); font-weight:600; font-size:2.1rem; color:var(--accent); line-height:1; }
+  .m .l{ font-size:13px; color:var(--muted); margin-top:9px; }
+  @media (max-width:560px){ .metrics{ grid-template-columns:repeat(2,1fr); } }
+
   .refs{ list-style:none; padding:0; margin:14px 0 0; }
-  .refs li{ padding:10px 0; border-bottom:1px solid var(--rule); font-size:15.5px; font-family:-apple-system,Segoe UI,Arial,sans-serif; }
-  .refs li:last-child{ border-bottom:none; }
+  .refs li{ padding:14px 0; border-bottom:1px solid var(--line); font-size:15.5px; }
+  .refs li:last-child{ border:none; }
 
-  footer{ padding:30px 0 60px; color:var(--soft); font-size:13.5px; font-family:-apple-system,Segoe UI,Arial,sans-serif; border-top:1px solid var(--rule); margin-top:30px; }
-  footer a{ color:var(--soft); }
+  footer{ padding:44px 0 70px; text-align:center; color:var(--muted); font-size:14px;
+    border-top:1px solid var(--line); background:var(--panel); }
+  footer a{ color:var(--accent); border-bottom:1px solid #cfe6d8; }
 </style>
 </head>
 <body>
 
-<div class="top">
-  <div class="wrap">
-    <b>GSoC&nbsp;2026</b>&nbsp;·&nbsp;pyGAM
+<nav>
+  <div class="wide">
+    <span class="logo">pyGAM <b>/</b> p-values</span>
     <span class="sp"></span>
-    <a href="#work">The work</a>
-    <a class="hidemob" href="#deep">Deep dive</a>
-    <a href="#links">Links</a>
+    <div class="navlinks">
+      <a href="#work">The work</a>
+      <a href="#deep">Deep dive</a>
+      <a href="#proof">The proof</a>
+      <a href="#links">Links</a>
+    </div>
   </div>
-</div>
+</nav>
 
 <header class="hero">
-  <div class="wrap">
-    <p class="kicker">Google Summer of Code 2026 · pyGAM</p>
-    <h1>Teaching pyGAM to tell<br>signal from noise</h1>
-    <span class="task">Task - Implemented a modern p-value computation</span>
-    <p class="sub">Correcting the p-values for smooth terms, so a wiggle in a fitted curve can be called real, or dismissed as chance - and trusted either way.</p>
-    <div class="herometa">
-      <div>By <strong>Vishal&nbsp;S</strong> · Mentored by <strong>Daniel Servén</strong> (<a href="https://github.com/dswah" target="_blank" rel="noopener">@dswah</a>) · a 350-hour GSoC project</div>
-      <div class="lnks" style="margin-top:8px">
-        <a href="https://github.com/dswah/pyGAM/pull/586" target="_blank" rel="noopener">Pull request #586</a>
-        <a href="https://github.com/dswah/pyGAM/issues/163" target="_blank" rel="noopener">Issue #163</a>
-        <a href="https://github.com/vsl366/pyGAM/tree/gsoc-vsl366" target="_blank" rel="noopener">My branch</a>
-        <a href="https://summerofcode.withgoogle.com/" target="_blank" rel="noopener">GSoC</a>
-      </div>
+  <div class="col">
+    <span class="badge"><span class="dot"></span> Google Summer of Code 2026 · pyGAM</span>
+    <h1>Teaching pyGAM to tell <span class="g">signal</span> from <span class="g">noise</span></h1>
+    <p class="sub">Implemented a modern p-value computation for smooth terms, so a wiggle in a fitted curve can be called real, or dismissed as chance.</p>
+    <p class="who">By <b>Vishal S</b>, mentored by <b>Daniel Servén</b> (<a href="https://github.com/dswah" target="_blank" rel="noopener">@dswah</a>).<br>A 350-hour project with <b>GC.OS</b>, on the <b>pyGAM</b> library.</p>
+    <div class="linkrow">
+      <a class="solid" href="https://github.com/dswah/pyGAM/pull/586" target="_blank" rel="noopener">Pull request #586</a>
+      <a href="https://github.com/dswah/pyGAM/issues/163" target="_blank" rel="noopener">Issue #163</a>
+      <a href="https://github.com/vsl366/pyGAM/tree/gsoc-vsl366" target="_blank" rel="noopener">My branch</a>
+      <a href="https://summerofcode.withgoogle.com/programs/2026/projects/LZMBhg6A" target="_blank" rel="noopener">GSoC project page</a>
     </div>
   </div>
 </header>
 
 <main>
 
-<!-- ===== INTRO: GAM + pyGAM ===== -->
+<!-- PART ONE -->
 <section id="work">
-  <div class="wrap">
-    <p class="part">Part one - the work</p>
+  <div class="col prose">
+    <p class="eyebrow">Part one - the work</p>
     <h2>First, what is a GAM?</h2>
-    <p class="lead">A <strong>Generalized Additive Model</strong> is a regression that doesn't force every relationship to be a straight line. Instead of one slope per feature, it fits a flexible <em>curve</em> for each - letting the data choose the shape. Each smooth curve is built as a weighted sum of simple basis functions,</p>
+    <p class="lead">A Generalized Additive Model is a regression that doesn't force every relationship to be a straight line. Instead of one slope per feature, it fits a flexible curve for each, and lets the data choose the shape. Each curve is a weighted sum of simple building-block functions,</p>
+    <div class="math">$$f_j(x) = \sum_k \beta_{jk}\, B_{jk}(x),$$</div>
+    <p>and the model adds those curves together through a link function $g$:</p>
+    <div class="math">$$g\big(\mathbb{E}[y]\big) = \alpha + f_1(x_1) + \cdots + f_p(x_p).$$</div>
+    <p>The coefficients are fit by penalised iteratively-reweighted least squares. The penalty $S$ is the knob that stops the curves from overfitting:</p>
+    <div class="math">$$\hat{\beta} = \big(X^\top W X + S\big)^{-1} X^\top W z.$$</div>
+    <p>To ask whether a term actually matters, i.e. the hypothesis $H_0: \beta_j = 0$, you form a Wald-type statistic. In words: how big is the fitted term, measured against its own uncertainty?</p>
+    <div class="math">$$T_r = \hat{\beta}_j^\top \hat{V}_\beta^{-1} \hat{\beta}_j.$$</div>
+    <p>pyGAM turned that number into a p-value with $P(\chi^2_{\text{rank}} > T_r)$. But Wood (2013b) shows the right yardstick isn't a plain $\chi^2$. It is a weighted mixture of chi-squareds:</p>
+    <div class="math">$$T_r \sim \sum_{i=1}^{r-2}\chi^2_1 \;+\; e_1\,\chi^2_1 \;+\; e_2\,\chi^2_1,$$</div>
+    <p>where $e_1, e_2$ are the two extreme eigenvalues of the influence matrix $F = X(X^\top W X + S)^{-1}X^\top W$. Using the plain $\chi^2(\text{rank})$ makes the p-values too small, which shows up as false positives.</p>
 
-    <div class="mathblock">$$f_j(x) = \sum_k \beta_{jk}\, B_{jk}(x),$$</div>
-
-    <p>and the whole model adds those curves together through a link function $g$:</p>
-
-    <div class="mathblock">$$g\big(\mathbb{E}[y]\big) = \alpha + f_1(x_1) + \cdots + f_p(x_p).$$</div>
-
-    <p>The coefficients are estimated by penalised iteratively-reweighted least squares - the penalty $S$ is what keeps the curves from overfitting:</p>
-
-    <div class="mathblock">$$\hat{\beta} = \big(X^\top W X + S\big)^{-1} X^\top W z.$$</div>
-
-    <p>To ask whether a term actually matters - the hypothesis $H_0: \beta_j = 0$ - a Wald-type statistic is formed:</p>
-
-    <div class="mathblock">$$T_r = \hat{\beta}_j^\top \hat{V}_\beta^{-1} \hat{\beta}_j.$$</div>
-
-    <p>pyGAM turned that statistic into a p-value with $P(\chi^2_{\text{rank}} > T_r)$. But <strong>Wood (2013b) shows the correct reference distribution isn't a plain $\chi^2$</strong> - it's a weighted mixture of chi-squareds:</p>
-
-    <div class="mathblock">$$T_r \sim \sum_{i=1}^{r-2}\chi^2_1 \;+\; e_1\,\chi^2_1 \;+\; e_2\,\chi^2_1,$$</div>
-
-    <p>where $e_1, e_2$ are the two extreme eigenvalues of the influence matrix $F = X(X^\top W X + S)^{-1}X^\top W$. Using the plain $\chi^2(\text{rank})$ approximation <strong>systematically under-estimates p-values, producing false positives.</strong></p>
-
-    <h2>And The Issue</h2>
-    <p><a href="https://github.com/dswah/pyGAM" target="_blank" rel="noopener">pyGAM</a> is the most widely used library for building GAMs in Python. It's relied on well beyond machine-learning circles - which is exactly why its p-values matter:</p>
-
-    <div class="callout">
-      "The library is in need of more reliable p-values. We receive many citations from academics in social and earth sciences, and from reading their work it is clear that hypothesis testing is important to them. The current calculation in pyGAM uses an outdated approximation from Wood 2006 that is known to reject the null hypothesis too eagerly. Luckily Wood 2014 contains improved p-value calculations which are the standard in MGCV."
-      <span class="who">- the project idea</span>
-    </div>
-
+    <h2 style="margin-top:46px">And the issue</h2>
+    <p><a href="https://github.com/dswah/pyGAM" target="_blank" rel="noopener">pyGAM</a> is the most widely used library for building GAMs in Python. It is relied on well beyond machine-learning circles, which is exactly why its p-values matter:</p>
+    <blockquote>
+      <p>"The library is in need of more reliable p-values. We receive many citations from academics in social and earth sciences, and hypothesis testing is clearly important to them. The current calculation uses an outdated approximation from Wood 2006 that rejects the null hypothesis too eagerly. Luckily Wood 2014 contains improved p-value calculations which are the standard in mgcv."</p>
+      <cite>the pyGAM project idea</cite>
+    </blockquote>
     <h3>Expected outcomes</h3>
-    <div class="outcomes"><ul>
-      <li>Read and understand the reference text to understand the improved p-value calculation.</li>
-      <li>Implement the modernised statistical calculations in <code>GAM._compute_p_values()</code>.</li>
-      <li>Implement unit tests that compare to theoretical performance from the references (e.g. Wood 2014) using simple datasets.</li>
-    </ul></div>
+    <ul class="ticks">
+      <li>Read and understand the reference text to grasp the improved p-value calculation.</li>
+      <li>Implement the modernised statistics in <code>GAM._compute_p_values()</code>.</li>
+      <li>Write unit tests that compare against the references (e.g. Wood 2014) on simple datasets.</li>
+    </ul>
   </div>
 </section>
 
-<!-- ===== THE FIVE FIXES ===== -->
-<section>
-  <div class="wrap">
-    <p class="part">what I did</p>
-    <h2>Five concrete issues - and the fixes I made</h2>
-
-    <div class="fix"><div class="num">1</div><h3>Effective degrees of freedom</h3>
-      <p>I computed the effective degrees of freedom as $\text{edof}_j = \text{tr}(2F_j - F_j^2)$, not $\text{tr}(F_j)$. Existing PRs either rounded the result - destroying the correction - or computed the rank and never used it in the statistic.</p></div>
-
-    <div class="fix"><div class="num">2</div><h3>Pseudoinverse truncation</h3>
-      <p>The old <code>pinv</code> used every eigenvalue of the penalised covariance. Near-zero eigenvalues are heavily-penalised, effectively null directions; inverting them inflates the statistic and manufactures significance. I discard eigenvalues below a numerical threshold before inverting.</p></div>
-
-    <div class="fix"><div class="num">3</div><h3>Reference distribution</h3>
-      <p>I compute the p-value from the weighted chi-squared mixture rather than $\chi^2(\text{rank})$. The mixture has no closed form, so - as Wood recommends - I use the Liu–Tang–Zhang (2009) moment-matching approximation, matching the first four cumulants to a scaled chi-squared.</p></div>
-
-    <div class="fix"><div class="num">4</div><h3>QR-based covariance inversion</h3>
-      <p>I compute $T_r$ through a QR decomposition of the per-term model matrix, rather than forming and inverting the full covariance - reducing both computation time and numerical error, exactly as Wood recommends.</p></div>
-
-    <div class="fix"><div class="num">5</div><h3>Unknown-scale families</h3>
-      <p>For distributions with an estimated scale (e.g. Gaussian), pyGAM fell back to an F-statistic shortcut. I handle it correctly by integrating over the scale uncertainty via quadrature, properly accounting for the extra randomness of estimating the scale.</p></div>
+<!-- FIVE FIXES -->
+<section class="band">
+  <div class="wide">
+    <div class="col prose" style="padding-inline:0">
+      <p class="eyebrow">What I did</p>
+      <h2>Five concrete issues, and the fixes</h2>
+    </div>
+    <div class="fixes">
+      <div class="fixcard"><span class="n">1</span><h3>Effective degrees of freedom</h3><p>A penalised curve isn't as free as its coefficient count implies. You have to measure that partial freedom correctly, as $\text{tr}(2F_j - F_j^2)$ rather than $\text{tr}(F_j)$, and then actually use it. Earlier attempts rounded it off or ignored it.</p></div>
+      <div class="fixcard"><span class="n">2</span><h3>Pseudoinverse truncation</h3><p>Some directions of the curve are so damped by the penalty they carry no real information. Dividing by their near-zero variance explodes the score into fake significance, so I drop those directions before inverting.</p></div>
+      <div class="fixcard"><span class="n">3</span><h3>Reference distribution</h3><p>A fractional-freedom curve doesn't follow a textbook chi-squared, but a blended one. I score against that blend with the fast, accurate Liu-Tang-Zhang (2009) approximation.</p></div>
+      <div class="fixcard"><span class="n">4</span><h3>QR-based inversion</h3><p>Instead of inverting a huge, shaky covariance matrix, a QR trick rewrites the score on the curve itself, using a tiny matrix that is quick to compute and numerically stable.</p></div>
+      <div class="fixcard"><span class="n">5</span><h3>Unknown-scale families</h3><p>When the noise level is itself estimated (as with Gaussian models), that guess adds uncertainty. I fold it in by integrating over it, instead of a shortcut that pretends the scale is known.</p></div>
+    </div>
+    <div class="pipe">
+      <div class="st"><span class="k">FIX 1</span><span class="h">Effective df</span><span class="d">tr(2F − F²)</span></div>
+      <span class="arw">→</span>
+      <div class="st"><span class="k">FIX 4</span><span class="h">QR rotation</span><span class="d">into curve space</span></div>
+      <span class="arw">→</span>
+      <div class="st"><span class="k">FIX 2</span><span class="h">Truncate</span><span class="d">drop null directions</span></div>
+      <span class="arw">→</span>
+      <div class="st"><span class="k">FIX 3</span><span class="h">Mixture</span><span class="d">χ² weights</span></div>
+      <span class="arw">→</span>
+      <div class="st"><span class="k">FIX 5</span><span class="h">Scale</span><span class="d">quadrature</span></div>
+    </div>
   </div>
 </section>
 
-<!-- ===== COMMITS ===== -->
-<section>
-  <div class="wrap">
-    <p class="part">the trail</p>
-    <h2>Every commit</h2>
+<!-- COMMITS -->
+<section id="commits">
+  <div class="wide">
+    <div class="col prose" style="padding-inline:0">
+      <p class="eyebrow">The trail</p>
+      <h2>Every commit, over the summer</h2>
+      <p>The first helpers, the core statistic, the hard-won QR correction, the clean-room rewrite, then layer after layer of validation.</p>
+    </div>
     <figure>
-      <img src="images/commits.png" alt="Commit history of PR 586" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <img src="images/commits.png" alt="Commit history of PR 586" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
       <div class="ph" style="display:none">images/commits.png - drop your commit-history screenshot here</div>
       <figcaption><b>Commit history</b> on <a href="https://github.com/dswah/pyGAM/pull/586/commits" target="_blank" rel="noopener">PR #586</a>.</figcaption>
     </figure>
   </div>
 </section>
 
-<!-- ===== DEEP DIVE ===== -->
-<section id="deep">
-  <div class="wrap">
-    <p class="part">Part two - the deep dive</p>
+<!-- PART TWO / DEEP DIVE -->
+<section id="deep" class="band">
+  <div class="col prose">
+    <p class="eyebrow">Part two - the deep dive</p>
     <h2>How each piece actually works</h2>
-  </div>
-</section>
+    <p class="lead">The five fixes, in order, with the intuition first and the maths right after.</p>
 
-<!-- 1: edf -->
-<section>
-  <div class="wrap">
     <h3>1 · Effective degrees of freedom</h3>
-    <p>A penalised curve is less flexible than its coefficient count suggests - the penalty $S$ pulls it toward smoothness, spending only a <em>fraction</em> of each coefficient's freedom. That true flexibility is the effective degrees of freedom, and it's usually fractional (3.7, not 4).</p>
-    <p>The right measure comes from the influence matrix $F = X(X^\top W X + S)^{-1}X^\top W$, whose eigenvalues are shrinkage factors between 0 and 1. The correct edf is not $\text{tr}(F)$ but</p>
-    <div class="mathblock">$$\text{edof}_j = \text{tr}\big(2F_j - F_j^2\big),$$</div>
-    <p>computed per coefficient as $2F_{ii} - (F^2)_{ii}$ and summed over the term. This fractional number - call it $\tau$ - is what drives everything downstream. Crucially, I feed it <em>into</em> the statistic rather than rounding it or discarding it, which was the flaw in earlier attempts.</p>
-  </div>
-</section>
+    <p>Give a curve a wiggliness budget. With no penalty it can spend a whole unit of freedom on every coefficient; the penalty makes it spend only part of each. The total actually spent is the effective degrees of freedom, and it is usually a fraction like 3.7, not a round 4.</p>
+    <p>You read that spending off the influence matrix $F = X(X^\top W X + S)^{-1}X^\top W$, whose eigenvalues sit between 0 (fully penalised away) and 1 (fully free). The correct total is not $\text{tr}(F)$ but</p>
+    <div class="math">$$\text{edof}_j = \text{tr}\big(2F_j - F_j^2\big).$$</div>
+    <p>Call this number $\tau$. It sets how many chi-squared terms the yardstick should have, so getting it right, and feeding it into the test rather than rounding it away, is what everything else depends on.</p>
 
-<!-- 2: truncation -->
-<section>
-  <div class="wrap">
     <h3>2 · Pseudoinverse truncation</h3>
-    <p>The statistic needs the inverse of the curve's covariance - but that covariance has directions the penalty has almost entirely killed, with eigenvalues near zero. Inverting those divides by almost-nothing and blows the statistic up, manufacturing significance out of directions the data barely constrains.</p>
-    <p>So before inverting, I discard every direction whose eigenvalue falls below a numerical threshold. Only the directions the data actually supports survive - the pseudoinverse is formed on those alone. This is what keeps the test honest for heavily-penalised, wiggly terms.</p>
-  </div>
-</section>
+    <p>The score divides the curve by its uncertainty. But in some directions the penalty has crushed the curve so hard that its uncertainty is essentially zero. Dividing by that is like dividing by nothing: the score shoots up and reports significance that isn't there.</p>
+    <p class="intu">Intuition: if the data barely constrains a direction, it shouldn't get a vote. So I set a small threshold and throw out every direction below it before inverting. Only the directions the data really pins down are kept.</p>
 
-<!-- 3: reference distribution -->
-<section>
-  <div class="wrap">
     <h3>3 · The reference distribution</h3>
-    <p>Because $\tau$ is fractional, the statistic does not follow a clean $\chi^2$. It follows a <em>weighted mixture</em> of chi-squareds - the fully-counted directions contribute unit-weight $\chi^2_1$ terms, and the two fractional "boundary" directions contribute weighted ones. There is no closed form for its tail, so an approximation is required.</p>
-    <p>Wood offers two: the <strong>Davies</strong> exact method, and the <strong>Liu–Tang–Zhang (2009)</strong> moment-matching approximation. I use <strong>Liu–Tang–Zhang</strong> (<code>_liu2</code>): it matches the first four moments of the mixture to a single scaled, shifted chi-squared - fast, dependency-free, and accurate across the range that matters. Davies is exact but heavier, needing careful numerical integration on every call. Across my validation the two agree to within the tiny gap they naturally have deep in the tail, so for calibrated p-values over thousands of fits, <strong>Davies can safely be set aside</strong> in favour of the lighter approximation.</p>
-  </div>
-</section>
+    <p>Here is why a plain chi-squared is wrong. A $\chi^2$ with $k$ degrees of freedom is the distribution of $k$ whole, independent squared normals added up. But a fractional $\tau = 3.7$ means you have three-and-a-bit of them, not four. You can't have 0.7 of a squared normal in an ordinary chi-squared.</p>
+    <p>So the true yardstick is a mixture: a few full-weight $\chi^2_1$ terms for the whole directions, plus two partly-weighted ones for the fractional boundary. That mixture has no formula for its tail, so I approximate it with Liu-Tang-Zhang (<code>_liu2</code>), which matches its first four moments to a single stretched chi-squared. There is an exact route (Davies), but it is slower and, across all my checks, agrees with Liu to a hair, so I leave it aside.</p>
 
-<!-- 4: QR + full derivation -->
-<section>
-  <div class="wrap">
     <h3>4 · QR-based computation of the statistic</h3>
-    <p>Computing $T_r$ is the heart of the method - and the subtlest part. Written directly it needs the inverse of a large, ill-conditioned curve covariance. Wood's insight (§2·4) is that the statistic lives on the fitted <em>curve</em>, not the raw coefficients, and a QR decomposition of the term's model matrix collapses it onto a tiny, stable matrix. Here is the reduction, step by step.</p>
+    <p>This is the core, and the subtlest part. Done naively, the score needs the inverse of a giant, badly-behaved matrix. Wood's trick is to notice the score really lives on the fitted curve, not on the raw coefficients, and a QR decomposition lets you compute it on a tiny matrix instead. Here it is, one plain step at a time.</p>
 
-    <p><strong>Step 1 - the definition.</strong> The statistic is a Wald form on the curve $\hat f_j = X_j\hat\beta_j$, using the rank-$\tau$ pseudoinverse of its covariance:</p>
-    <div class="mathblock">$$T_r = \hat f_j^\top\, V_{f}^{(\tau-)}\, \hat f_j .$$</div>
+    <p><strong>Step 1.</strong> Start from the definition: the size of the curve $\hat f_j = X_j\hat\beta_j$, measured against its own (rank-$\tau$) uncertainty.</p>
+    <div class="math">$$T_r = \hat f_j^\top\, V_{f}^{(\tau-)}\, \hat f_j .$$</div>
+    <p class="intu">The curve's uncertainty lives in a huge $n\times n$ matrix. The next step is just a change of coordinates that shrinks it, without changing the answer, like weighing something on a smaller, better-calibrated scale.</p>
 
-    <p><strong>Step 2 - QR removes the big matrix.</strong> Write $X_j = QR$ with $Q$ orthonormal. Then $\hat f_j = Q(R\hat\beta_j)$ and $V_f = Q\,W\,Q^\top$ where $W = R\,V_\beta\,R^\top$. Because $Q^\top Q = I$, the $Q$'s cancel on both sides and everything reduces to the small $q\times q$ matrix:</p>
-    <div class="mathblock">$$T_r = (R\hat\beta_j)^\top\, W^{(\tau-)}\, (R\hat\beta_j),\qquad W = R\,V_\beta\,R^\top .$$</div>
-    <p>No giant inverse is ever formed, and $W$ carries exactly the same nonzero eigenvalues as the full curve covariance (a fact I check directly in the tests).</p>
+    <p><strong>Step 2.</strong> Write the term's design matrix as $X_j = QR$ with $Q$ orthonormal. Then $\hat f_j = Q(R\hat\beta_j)$ and the uncertainty factors as $V_f = Q\,W\,Q^\top$ with $W = R\,V_\beta\,R^\top$. Because $Q^\top Q = I$, the $Q$'s cancel and the whole thing collapses to the small $q\times q$ matrix $W$:</p>
+    <div class="math">$$T_r = (R\hat\beta_j)^\top\, W^{(\tau-)}\, (R\hat\beta_j),\qquad W = R\,V_\beta\,R^\top .$$</div>
+    <p>No giant inverse is ever formed, and $W$ has the very same nonzero eigenvalues as the huge matrix, a fact I verify directly in the tests.</p>
 
-    <p><strong>Step 3 - eigen-decompose and project.</strong> Diagonalise $W = U\Lambda U^\top$ and rotate the curve into that basis, $d = U^\top(R\hat\beta_j)$. Each $d_i$ is how much of the curve points along eigen-direction $i$.</p>
-    <div class="mathblock">$$W = U\Lambda U^\top,\qquad d = U^\top (R\hat\beta_j).$$</div>
+    <p><strong>Step 3.</strong> Find the natural axes of $W$ (its eigen-directions) and see how far the curve reaches along each:</p>
+    <div class="math">$$W = U\Lambda U^\top,\qquad d = U^\top (R\hat\beta_j).$$</div>
 
-    <p><strong>Step 4 - whiten.</strong> Divide each projection by its own uncertainty, turning it into a signal-to-noise ratio:</p>
-    <div class="mathblock">$$\delta_i = \frac{d_i}{\sqrt{\lambda_i}} .$$</div>
+    <p><strong>Step 4.</strong> Rescale each axis by its own uncertainty, so a value of 2 means two standard deviations and the axes become comparable:</p>
+    <div class="math">$$\delta_i = d_i / \sqrt{\lambda_i}.$$</div>
 
-    <p><strong>Step 5 - the paper's formula (Wood §2·2).</strong> With $\tau$ fractional, split the whitened vector into the fully-counted directions $\delta_1$ and the two boundary directions $\delta_2$:</p>
-    <div class="mathblock">$$T_r = \delta_1^\top\delta_1 \;+\; \delta_2^\top \tilde{B}\,\delta_2,\qquad \tilde B = \begin{bmatrix}1 & \rho\\ \rho & \nu\end{bmatrix},\; \rho=\sqrt{\tfrac{\nu(1-\nu)}{2}},$$</div>
-    <p>where $\nu$ is the fractional part of $\tau$. The first term is a plain sum of squares; the second gives the boundary pair its correct partial weight. In plain words: <em>measure how big the curve is in units of its own uncertainty, counting only the fractional degrees of freedom it truly has.</em></p>
+    <p><strong>Step 5.</strong> Add up the squared, rescaled reaches. The whole directions ($\delta_1$) count fully; the single fractional pair ($\delta_2$) gets a partial weight $\tilde B$:</p>
+    <div class="math">$$T_r = \delta_1^\top\delta_1 \;+\; \delta_2^\top \tilde{B}\,\delta_2,\qquad \tilde B = \begin{bmatrix}1 & \rho\\ \rho & \nu\end{bmatrix},\; \rho=\sqrt{\tfrac{\nu(1-\nu)}{2}},$$</div>
+    <p>where $\nu$ is the fractional part of $\tau$. In one line: measure how big the curve is in units of its own uncertainty, but only count the fractional freedom it truly has.</p>
+    <div class="note"><strong>A hard-won detail.</strong> The boundary directions have an arbitrary sign, and that sign flips the cross-term in $\tilde B$. Picking just one sign makes the estimated-scale cases disagree with mgcv. Tracing it case by case, the fix was to compute the boundary term for both signs and average the two p-values. After that, the statistic matches compiled mgcv to about one part in a billion.</div>
 
-    <div class="note"><strong>A hard-won detail.</strong> The two boundary eigenvectors have an arbitrary sign, which flips the cross-term in $\tilde B$. Evaluating only one choice makes the estimated-scale cases disagree with mgcv. The fix - which I traced by matching mgcv case by case - is to evaluate the boundary term for <em>both</em> signs of $\rho$ and average the two resulting p-values. With that in place, the statistic matches compiled mgcv to ~$10^{-9}$.</p>
-  </div>
-</section>
-
-<!-- 5: unknown scale -->
-<section>
-  <div class="wrap">
     <h3>5 · Unknown-scale families</h3>
-    <p>For Gaussian-type models the noise scale is estimated from the data, which injects extra randomness the p-value must respect. pyGAM used to fall back to an F-statistic shortcut here. Instead, I integrate the mixture tail over the scale's own uncertainty by quadrature - a scaled version of the same Liu approximation (<code>_liu2_scaled_quadrature</code>).</p>
-    <p>This is exactly the branch you'll see in the flow diagram below: when the scale is known, the p-value comes from <code>_liu2</code>; when it's estimated, from <code>_liu2_scaled_quadrature</code>. Both return the same thing - a calibrated tail probability for $T_r$ - but the estimated-scale path correctly carries a little more uncertainty, giving slightly larger, honest p-values.</p>
+    <p>For Gaussian-type models you also have to estimate the noise level, and that estimate is itself uncertain, like measuring with a ruler whose length you only know approximately. pyGAM used to paper over this with an F-shortcut. Instead I integrate the mixture tail over the scale's uncertainty by quadrature (<code>_liu2_scaled_quadrature</code>). When the scale is known the p-value comes from <code>_liu2</code>; when it is estimated, from the quadrature version, which carries that extra uncertainty and returns slightly larger, honest p-values.</p>
   </div>
 </section>
 
-<!-- FLOWCHART -->
-<section>
-  <div class="wrap">
-    <p class="part">the call flow</p>
+<!-- CALL FLOW -->
+<section id="flow">
+  <div class="col prose">
+    <p class="eyebrow">The call flow</p>
     <h2>How a p-value is produced</h2>
+  </div>
+  <div class="col">
     <div class="flow">
-      <div class="stagebox green"><span class="fn">GAM._compute_p_value(j)</span><span class="desc">entry point - one term at a time</span></div>
-      <div class="down">↓<small>extracts β̂ⱼ, Vⱼ, Xⱼ, edfⱼ for the term</small></div>
-      <div class="stagebox green"><span class="fn">_woodteststat(β, V, edf, X)</span><span class="desc">the statistic, in curve space</span></div>
-      <div class="down">↓<small>QR → W = R·V·Rᵀ · eigen-decompose · truncate · build T</small></div>
-      <div class="stagebox amber"><span class="fn">scale known?</span></div>
-      <div class="branchrow">
-        <div>
-          <div class="branch-lab">yes - known scale</div>
-          <div class="stagebox blue"><span class="fn">_liu2(T, weights)</span><span class="desc">chi-squared mixture tail</span></div>
-        </div>
-        <div>
-          <div class="branch-lab">no - estimated scale</div>
-          <div class="stagebox blue"><span class="fn">_liu2_scaled_quadrature(T, w, res_df)</span><span class="desc">integrate over scale uncertainty</span></div>
-        </div>
+      <div class="node hl"><div class="fn">GAM._compute_p_value(j)</div><div class="d">entry point, one term at a time</div></div>
+      <div class="arrow">↓<small>extracts β̂ⱼ, Vⱼ, Xⱼ, edfⱼ</small></div>
+      <div class="node hl"><div class="fn">_woodteststat(β, V, edf, X)</div><div class="d">the statistic, in curve space</div></div>
+      <div class="arrow">↓<small>QR → W = R·V·Rᵀ · eigen-decompose · truncate · build T</small></div>
+      <div class="node"><div class="fn">scale known?</div></div>
+      <div class="fork">
+        <div><div class="lab">yes, known scale</div><div class="node"><div class="fn">_liu2(T, w)</div><div class="d">chi-squared mixture tail</div></div></div>
+        <div><div class="lab">no, estimated scale</div><div class="node"><div class="fn">_liu2_scaled_quadrature(…)</div><div class="d">integrate over scale</div></div></div>
       </div>
-      <div class="down">↓</div>
-      <div class="stagebox green"><span class="fn">p-value</span><span class="desc"> returned to the caller</span></div>
+      <div class="arrow">↓</div>
+      <div class="node hl"><div class="fn">p-value</div><div class="d">returned to the caller</div></div>
     </div>
   </div>
 </section>
 
-<!-- TEST CATEGORIES -->
-<section>
-  <div class="wrap">
-    <p class="part">the test suite</p>
-    <h2>How I proved it works</h2>
-    <p>I wrote <code>test_pvalues.py</code> from scratch - 88 tests, layered from cheap unit checks up to real-data validation. The major groups:</p>
+<!-- PROOF -->
+<section id="proof" class="band">
+  <div class="col prose">
+    <p class="eyebrow">The proof</p>
+    <h2>How I know it works</h2>
+    <p>I wrote <code>test_pvalues.py</code> from scratch, 88 tests, from cheap unit checks up to real-data validation.</p>
 
     <h3>Agreement with mgcv</h3>
-    <p>The strongest check: feed the <em>same</em> inputs to my statistic and to compiled mgcv's <code>testStat</code>, and compare. Across 13 cases - fractional and integer degrees of freedom, known and estimated scale, spline, factor, and tensor terms - the statistic matches to about nine decimal places.</p>
+    <p>The strongest check: feed the same inputs to my statistic and to compiled mgcv's <code>testStat</code>. Across 13 cases (fractional and integer df, known and estimated scale, spline, factor, and tensor terms) the statistic matches to about nine decimal places.</p>
 
-    <h3>Null calibration (type-I error)</h3>
-    <p>Fit a smooth on <em>pure noise</em> hundreds of times. An honest p-value must then be uniform on [0,1] - so on a QQ-plot the points land on the diagonal. This directly reproduces Wood's Figure 2, and it's the clearest evidence the old false-positive bug is gone.</p>
+    <h3>Null calibration</h3>
+    <p>Fit a smooth on pure noise hundreds of times. An honest p-value must then be uniform on [0,1], so on a QQ-plot the points land on the diagonal. This reproduces Wood's Figure 2 directly, and it is the clearest single picture that the old false-positive bug is gone.</p>
+  </div>
+  <div class="wide">
     <figure>
-      <img src="images/null-qq.png" alt="Null QQ-plot on the diagonal" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <img src="images/null-qq.png" alt="Null QQ-plot on the diagonal" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
       <div class="ph" style="display:none">images/null-qq.png - the null-calibration QQ-plot</div>
-      <figcaption><b>On the diagonal = calibrated.</b> Null p-values vs uniform quantiles.</figcaption>
+      <figcaption><b>On the diagonal, so calibrated.</b> Null p-values against uniform quantiles.</figcaption>
     </figure>
-
-
-    <h3>Power &amp; discrimination</h3>
-    <p>Calibration proves the method stays quiet on noise; these prove it's <em>loud</em> on real effects. On data with a genuine signal it fires essentially every time, ignores decoy features, and its p-value falls smoothly as the signal strengthens.</p>
-
-    <h3>Tensor &amp; real-data</h3>
-    <p>Multidimensional <code>te()</code> terms are validated the same three ways and matched to mgcv on a real fit. Finally, the classic ISLR <em>wage</em> dataset recovers the textbook effects - <code>age</code> strongly nonlinear, <code>education</code> strong, <code>year</code> weak but real - exercising the categorical factor path end-to-end.</p>
+  </div>
+  <div class="col prose">
+    <h3>Power, tensors and real data</h3>
+    <p>Calibration proves the method stays quiet on noise; power tests prove it is loud on real effects, firing every time, ignoring decoy features, and weakening smoothly as the signal fades. Multidimensional <code>te()</code> terms are checked the same ways and matched to mgcv on a real fit. Finally, the ISLR wage dataset recovers the textbook answers, with <code>age</code> strongly nonlinear, <code>education</code> strong, and <code>year</code> weak but real, exercising the categorical factor path end to end.</p>
+  </div>
+  <div class="wide">
     <figure>
-      <img src="images/tests-pass.png" alt="pytest all green" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <img src="images/tests-pass.png" alt="pytest all green" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
       <div class="ph" style="display:none">images/tests-pass.png - pytest output, all green</div>
       <figcaption><b>The full suite, green.</b></figcaption>
     </figure>
@@ -381,38 +371,40 @@
 </section>
 
 <!-- METRICS -->
-<section>
-  <div class="wrap">
-    <p class="part">by the numbers</p>
+<section id="numbers">
+  <div class="col prose">
+    <p class="eyebrow">By the numbers</p>
     <h2>The work, measured</h2>
+  </div>
+  <div class="wide">
     <div class="metrics">
-      <div class="metric"><div class="v">88</div><div class="l">tests written</div></div>
-      <div class="metric"><div class="v">13</div><div class="l">mgcv agreement cases</div></div>
-      <div class="metric"><div class="v">~1e-9</div><div class="l">match to reference</div></div>
-      <div class="metric"><div class="v">5</div><div class="l">new / rewritten functions</div></div>
-      <div class="metric"><div class="v">16</div><div class="l">commits</div></div>
-      <div class="metric"><div class="v">1</div><div class="l">pull request (#586)</div></div>
+      <div class="m"><div class="v">88</div><div class="l">tests written</div></div>
+      <div class="m"><div class="v">13</div><div class="l">mgcv agreement cases</div></div>
+      <div class="m"><div class="v">~1e-9</div><div class="l">match to reference</div></div>
+      <div class="m"><div class="v">5</div><div class="l">functions added / rewritten</div></div>
+      <div class="m"><div class="v">17</div><div class="l">commits</div></div>
+      <div class="m"><div class="v">1</div><div class="l">pull request (#586)</div></div>
     </div>
-    <p class="muted" style="font-size:14px;color:var(--soft);font-family:-apple-system,Segoe UI,Arial,sans-serif">
-      Core files: <code>pygam/pygam.py</code> (the five fixes) and <code>pygam/tests/test_pvalues.py</code> (737 lines, authored from scratch), plus standalone validation scripts. Exact additions / deletions are on the PR's <a href="https://github.com/dswah/pyGAM/pull/586/files" target="_blank" rel="noopener">Files&nbsp;changed</a> tab.
-    </p>
+    <div class="col prose" style="padding-inline:0">
+      <p style="font-size:14.5px;color:var(--muted)">Core files: <code>pygam/pygam.py</code> (the five fixes) and <code>pygam/tests/test_pvalues.py</code> (737 lines, written from scratch), plus standalone validation scripts. Exact additions and deletions are on the PR's <a href="https://github.com/dswah/pyGAM/pull/586/files" target="_blank" rel="noopener">Files changed</a> tab.</p>
+    </div>
   </div>
 </section>
 
 <!-- LINKS -->
-<section id="links">
-  <div class="wrap">
-    <p class="part">links &amp; references</p>
+<section id="links" class="band">
+  <div class="col prose">
+    <p class="eyebrow">Links and references</p>
     <h2>Everything in one place</h2>
     <ul class="refs">
-      <li><a href="https://github.com/dswah/pyGAM/pull/586" target="_blank" rel="noopener">Pull request #586</a> - the contribution</li>
-      <li><a href="https://github.com/dswah/pyGAM/issues/163" target="_blank" rel="noopener">Issue #163</a> - the original bug report</li>
-      <li><a href="https://github.com/vsl366/pyGAM/tree/gsoc-vsl366" target="_blank" rel="noopener">My working branch</a> - vsl366/pyGAM · gsoc-vsl366</li>
+      <li><a href="https://github.com/dswah/pyGAM/pull/586" target="_blank" rel="noopener">Pull request #586</a>, the contribution</li>
+      <li><a href="https://github.com/dswah/pyGAM/issues/163" target="_blank" rel="noopener">Issue #163</a>, the original bug report</li>
+      <li><a href="https://summerofcode.withgoogle.com/programs/2026/projects/LZMBhg6A" target="_blank" rel="noopener">GSoC 2026 project page</a> (GC.OS)</li>
+      <li><a href="https://github.com/vsl366/pyGAM/tree/gsoc-vsl366" target="_blank" rel="noopener">My working branch</a>, vsl366/pyGAM · gsoc-vsl366</li>
       <li><a href="https://github.com/dswah/pyGAM" target="_blank" rel="noopener">pyGAM</a> · <a href="https://pygam.readthedocs.io" target="_blank" rel="noopener">documentation</a></li>
-      <li><a href="https://summerofcode.withgoogle.com/" target="_blank" rel="noopener">Google Summer of Code</a></li>
-      <li>Wood, S. N. (2013). <em>On p-values for smooth components of an extended generalized additive model.</em> Biometrika 100(1), 221–228. - <a href="https://doi.org/10.1093/biomet/ass048" target="_blank" rel="noopener">doi:10.1093/biomet/ass048</a></li>
-      <li>Liu, Tang &amp; Zhang (2009). <em>A new chi-square approximation to the distribution of non-negative definite quadratic forms.</em> Comput. Stat. Data Anal. 53(4), 853–856.</li>
-      <li>Wood, S. N. (2017). <em>Generalized Additive Models: An Introduction with R</em> (2nd ed.). - the standard reference and basis of <a href="https://cran.r-project.org/package=mgcv" target="_blank" rel="noopener">mgcv</a>.</li>
+      <li>Wood, S. N. (2013). On p-values for smooth components of an extended generalized additive model. Biometrika 100(1), 221-228. <a href="https://doi.org/10.1093/biomet/ass048" target="_blank" rel="noopener">doi:10.1093/biomet/ass048</a></li>
+      <li>Liu, Tang and Zhang (2009). A new chi-square approximation to the distribution of non-negative definite quadratic forms. Comput. Stat. Data Anal. 53(4), 853-856.</li>
+      <li>Wood, S. N. (2017). Generalized Additive Models: An Introduction with R (2nd ed.), the basis of <a href="https://cran.r-project.org/package=mgcv" target="_blank" rel="noopener">mgcv</a>.</li>
     </ul>
   </div>
 </section>
@@ -420,7 +412,7 @@
 </main>
 
 <footer>
-  <div class="wrap">GSoC 2026 · pyGAM · Vishal S &nbsp;-&nbsp; <a href="#top">back to top ↑</a></div>
+  <div class="col">GSoC 2026 · GC.OS · pyGAM · Vishal S &nbsp;/&nbsp; <a href="#work">back to top ↑</a></div>
 </footer>
 
 </body>
